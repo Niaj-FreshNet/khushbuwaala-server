@@ -6,9 +6,16 @@ const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 require('dotenv').config()
 const port = process.env.PORT || 5000;
 
-// middleware
-app.use(cors());
-app.use(express.json())
+app.use(express.json());
+
+app.use(cors({
+  origin: [
+    'https://khushbuwaala-perfume.web.app',
+    'https://khushbuwaala.com',
+    'http://localhost:5173',
+    'http://localhost:5174'
+  ]
+}));
 
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.kqlaj.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
@@ -33,34 +40,138 @@ async function run() {
     const cartCollection = client.db("khushbuwaalaDB").collection("carts");
     const orderCollection = client.db("khushbuwaalaDB").collection("orders");
 
-    // Order-related API to handle order creation
+
     app.post('/api/orders', async (req, res) => {
       const orderDetails = req.body;
 
       try {
+        // Retrieve the latest order by sorting in descending order of orderId
+        const lastOrder = await orderCollection
+          .find({})
+          .sort({ orderId: -1 }) // Sort by orderId in descending order
+          .limit(1)
+          .toArray();
+
+        // Generate new sequential orderId based on the last order
+        let newOrderId;
+        if (lastOrder.length > 0 && lastOrder[0].orderId) {
+          const lastOrderId = parseInt(lastOrder[0].orderId.split('-')[1]); // Assuming format is PREFIX-0001
+          const newOrderNumber = lastOrderId + 1;
+          newOrderId = `K${newOrderNumber.toString().padStart(5, '0')}`; // Format as ORDER-0001, ORDER-0002, etc.
+        } else {
+          newOrderId = 'K5101'; // Starting point if no previous orders
+        }
+
+        // Add new orderId, date, and time to the order details
+        orderDetails.orderId = newOrderId;
+        orderDetails.orderPlacedAt = new Date().toISOString(); // Store date and time in ISO format
+
+        // Insert the order into the database
         const result = await orderCollection.insertOne(orderDetails);
-        console.log(result, '::::::::::::::::::::')
-        res.status(201).json({ success: true, orderId: result.insertedId });
+        console.log(result);
+
+        res.status(201).json({ success: true, orderId: newOrderId });
       } catch (error) {
         console.error("Order creation failed:", error);
         res.status(500).json({ success: false, message: 'Order creation failed' });
       }
     });
 
-    // Orders GET route to retrieve an order by ID
+
     app.get('/api/orders/:orderId', async (req, res) => {
       const { orderId } = req.params;
+    
       try {
-        const order = await orderCollection.findOne({ _id: new ObjectId(orderId) });
+        const order = await orderCollection.findOne({ orderId }); // Search by `orderId` as a string
+    
         if (order) {
           res.status(200).send(order);
         } else {
           res.status(404).send({ message: 'Order not found' });
         }
       } catch (error) {
-        res.status(500).send({ message: 'Error retrieving the order', error });
+        console.error("Error retrieving the order:", error);
+        res.status(500).send({ message: 'Error retrieving the order', error: error.message });
       }
     });
+    
+    
+
+    app.get('/api/orders', async (req, res) => {
+      const result = await orderCollection.find().toArray();
+      console.log(result)
+      res.send(result);
+    });
+
+    // Update an order's order status by sale ID
+    app.patch('/api/orders/:id/orderStatus', async (req, res) => {
+      try {
+        const id = req.params.id;
+        const { orderStatus } = req.body;
+
+        if (!ObjectId.isValid(id)) {
+          return res.status(400).send({ error: 'Invalid order ID' });
+        }
+
+        const result = await orderCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { orderStatus } }
+        );
+
+        console.log(`Post status update result:`, result); // Additional logging
+
+        if (result.modifiedCount === 0) {
+          return res.status(404).send({ error: 'Order not found or orderStatus unchanged' });
+        }
+
+        res.send({ message: 'Post status updated successfully', result });
+      } catch (error) {
+        console.error('Error updating order orderStatus:', error);
+        res.status(500).send({ error: 'Failed to update order orderStatus' });
+      }
+    });
+
+
+    // Update an order's payment status by sale ID
+    app.patch('/api/orders/:id/paymentStatus', async (req, res) => {
+      try {
+        const id = req.params.id;
+        const { paymentStatus } = req.body;
+
+        if (!ObjectId.isValid(id)) {
+          return res.status(400).send({ error: 'Invalid order ID' });
+        }
+
+        const result = await orderCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { paymentStatus } }
+        );
+
+        console.log(`Payment status update result:`, result); // Additional logging
+
+        if (result.modifiedCount === 0) {
+          return res.status(404).send({ error: 'Order not found or paymentStatus unchanged' });
+        }
+
+        res.send({ message: 'Payment status updated successfully', result });
+      } catch (error) {
+        console.error('Error updating order paymentStatus:', error);
+        res.status(500).send({ error: 'Failed to update order paymentStatus' });
+      }
+    });
+
+
+    app.delete('/api/orders/:id', async (req, res) => {
+      const { id } = req.params;
+      try {
+        const result = await orderCollection.deleteOne({ _id: new ObjectId(id) }); // Convert id to ObjectId
+        res.json({ deletedCount: result.deletedCount });
+      } catch (error) {
+        console.error('Error deleting order:', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+      }
+    });    
+
 
 
     // // jwt related api
@@ -215,35 +326,35 @@ async function run() {
 
     app.get('/related-products/:id', async (req, res) => {
       try {
-          const itemId = req.params.id;
-          const currentItem = await itemCollection.findOne({ _id: new ObjectId(itemId) });
-  
-          if (!currentItem) {
-              return res.status(404).json({ error: "Product not found" });
-          }
-  
-          const { category, smell } = currentItem;
-  
-          const relatedProducts = await itemCollection.find({
-              _id: { $ne: new ObjectId(itemId) },
-              category,
-              smell: { $in: smell }
-          }).limit(4).toArray();
-  
-          // Log the relatedProducts to inspect the format
-          console.log("Related products:", relatedProducts);
-  
-          // Confirm that relatedProducts is an array before sending
-          if (!Array.isArray(relatedProducts)) {
-              return res.status(500).json({ error: "Unexpected response format: relatedProducts is not an array" });
-          }
-  
-          res.json(relatedProducts);
+        const itemId = req.params.id;
+        const currentItem = await itemCollection.findOne({ _id: new ObjectId(itemId) });
+
+        if (!currentItem) {
+          return res.status(404).json({ error: "Product not found" });
+        }
+
+        const { category, smell } = currentItem;
+
+        const relatedProducts = await itemCollection.find({
+          _id: { $ne: new ObjectId(itemId) },
+          category,
+          smell: { $in: smell }
+        }).limit(4).toArray();
+
+        // Log the relatedProducts to inspect the format
+        console.log("Related products:", relatedProducts);
+
+        // Confirm that relatedProducts is an array before sending
+        if (!Array.isArray(relatedProducts)) {
+          return res.status(500).json({ error: "Unexpected response format: relatedProducts is not an array" });
+        }
+
+        res.json(relatedProducts);
       } catch (error) {
-          console.error("Error fetching related products:", error);
-          res.status(500).json({ error: "Error fetching related products" });
+        console.error("Error fetching related products:", error);
+        res.status(500).json({ error: "Error fetching related products" });
       }
-  });
+    });
 
     // review related apis
     app.get('/reviews', async (req, res) => {
@@ -273,8 +384,8 @@ async function run() {
     });
 
     // Send a ping to confirm a successful connection
-    await client.db("admin").command({ ping: 1 });
-    console.log("Pinged your deployment. You successfully connected to MongoDB!");
+    // await client.db("admin").command({ ping: 1 });
+    // console.log("Pinged your deployment. You successfully connected to MongoDB!");
   } finally {
     // Ensures that the client will close when you finish/error
     // await client.close();
