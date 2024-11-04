@@ -10,7 +10,7 @@ app.use(express.json());
 
 app.use(cors({
   origin: [
-    'https://khushbuwaala-perfume.web.app',
+    'https://khushbuwaala-perfumes.web.app',
     'https://khushbuwaala.com',
     'http://localhost:5173',
     'http://localhost:5174'
