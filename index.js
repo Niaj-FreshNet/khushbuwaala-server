@@ -10,20 +10,19 @@ app.use(express.json());
 
 app.use(cors({
   origin: [
-    'https://quickway2services.com',
-    'https://khushbuwaala-perfumes.web.app',
     'https://khushbuwaala.com',
+    'https://khushbuwaala-perfumes.web.app',
     'http://localhost:5173',
     'http://localhost:5174'
   ]
 }));
 
-app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', 'https://quickway2services.com');
-  res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  next();
-});
+// app.use((req, res, next) => {
+//   res.header('Access-Control-Allow-Origin', 'https://khushbuwaala.com');
+//   res.header('Access-Control-Allow-Methods', 'GET,POST,PATCH,PUT,DELETE');
+//   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+//   next();
+// });
 
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.kqlaj.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
