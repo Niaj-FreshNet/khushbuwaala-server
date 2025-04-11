@@ -1,29 +1,25 @@
 const express = require('express');
-const app = express();
 const cors = require('cors');
+const app = express();
 // const jwt = require('jsonwebtoken');
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 require('dotenv').config()
 const port = process.env.PORT || 5000;
 
-app.use(express.json());
-
-app.use(cors({
+const corsOptions = {
   origin: [
     'https://khushbuwaala.com',
+    'https://www.khushbuwaala.com',
     'https://khushbuwaala-perfumes.web.app',
     'http://localhost:5173',
     'http://localhost:5174'
-  ]
-}));
+  ],
+  methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+};
 
-// app.use((req, res, next) => {
-//   res.header('Access-Control-Allow-Origin', 'https://khushbuwaala.com');
-//   res.header('Access-Control-Allow-Methods', 'GET,POST,PATCH,PUT,DELETE');
-//   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-//   next();
-// });
-
+app.use(cors(corsOptions)); // CORS middleware at the top
+app.use(express.json());    // Other middleware
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.kqlaj.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
 
@@ -50,7 +46,7 @@ async function run() {
 
     app.post('/api/orders', async (req, res) => {
       const orderDetails = req.body;
-
+    
       try {
         // Retrieve the latest order by sorting in descending order of orderId
         const lastOrder = await orderCollection
@@ -58,39 +54,56 @@ async function run() {
           .sort({ orderId: -1 }) // Sort by orderId in descending order
           .limit(1)
           .toArray();
-
+        console.log('Last Order:', lastOrder);
+    
         // Generate new sequential orderId based on the last order
         let newOrderId;
         if (lastOrder.length > 0 && lastOrder[0].orderId) {
-          const lastOrderId = parseInt(lastOrder[0].orderId.split('-')[1]); // Assuming format is PREFIX-0001
-          const newOrderNumber = lastOrderId + 1;
-          newOrderId = `K${newOrderNumber.toString().padStart(5, '0')}`; // Format as ORDER-0001, ORDER-0002, etc.
+          const lastOrderIdStr = lastOrder[0].orderId.match(/\d+/); // Extract numeric part using regex
+          console.log('Last Order ID String:', lastOrderIdStr);
+    
+          if (lastOrderIdStr) {
+            const lastOrderId = parseInt(lastOrderIdStr[0], 10); // Parse the numeric part
+            console.log('Parsed Last Order ID:', lastOrderId);
+    
+            if (!isNaN(lastOrderId)) {
+              const newOrderNumber = lastOrderId + 1;
+              newOrderId = `K${newOrderNumber.toString().padStart(5, '0')}`; // Format as K00001, K00002, etc.
+              console.log('New Order Number:', newOrderNumber);
+              console.log('New OrderId:', newOrderId);
+            } else {
+              throw new Error('Invalid last orderId format');
+            }
+          } else {
+            throw new Error('No numeric part found in last orderId');
+          }
         } else {
-          newOrderId = 'K5101'; // Starting point if no previous orders
+          newOrderId = 'K00001'; // Starting point if no previous orders
+          console.log('New OrderId (Starting Point):', newOrderId);
         }
-
+    
         // Add new orderId, date, and time to the order details
         orderDetails.orderId = newOrderId;
         orderDetails.orderPlacedAt = new Date().toISOString(); // Store date and time in ISO format
-
+    
         // Insert the order into the database
         const result = await orderCollection.insertOne(orderDetails);
-        console.log(result);
-
+        console.log('Insert Result:', result);
+    
         res.status(201).json({ success: true, orderId: newOrderId });
       } catch (error) {
         console.error("Order creation failed:", error);
         res.status(500).json({ success: false, message: 'Order creation failed' });
       }
-    });
+    });    
 
 
     app.get('/api/orders/:orderId', async (req, res) => {
       const { orderId } = req.params;
-    
+
       try {
         const order = await orderCollection.findOne({ orderId }); // Search by `orderId` as a string
-    
+
         if (order) {
           res.status(200).send(order);
         } else {
@@ -101,12 +114,12 @@ async function run() {
         res.status(500).send({ message: 'Error retrieving the order', error: error.message });
       }
     });
-    
-    
+
+
 
     app.get('/api/orders', async (req, res) => {
       const result = await orderCollection.find().toArray();
-      console.log(result)
+      // console.log(result)
       res.send(result);
     });
 
@@ -125,7 +138,7 @@ async function run() {
           { $set: { orderStatus } }
         );
 
-        console.log(`Post status update result:`, result); // Additional logging
+        // console.log(`Post status update result:`, result); // Additional logging
 
         if (result.modifiedCount === 0) {
           return res.status(404).send({ error: 'Order not found or orderStatus unchanged' });
@@ -154,7 +167,7 @@ async function run() {
           { $set: { paymentStatus } }
         );
 
-        console.log(`Payment status update result:`, result); // Additional logging
+        // console.log(`Payment status update result:`, result); // Additional logging
 
         if (result.modifiedCount === 0) {
           return res.status(404).send({ error: 'Order not found or paymentStatus unchanged' });
@@ -177,7 +190,7 @@ async function run() {
         console.error('Error deleting order:', error);
         res.status(500).json({ error: 'Internal Server Error' });
       }
-    });    
+    });
 
 
 
@@ -273,17 +286,25 @@ async function run() {
     // item related apis
     app.get('/item', async (req, res) => {
       const result = await itemCollection.find().toArray();
-      console.log(result)
+      // console.log(result)
       res.send(result);
     });
 
-    app.get('/item/:id', async (req, res) => {
-      const id = req.params.id;
-      const query = { _id: new ObjectId(id) }
+    // app.get('/item/:id', async (req, res) => {
+    //   const id = req.params.id;
+    //   const query = { _id: new ObjectId(id) }
+    //   const result = await itemCollection.findOne(query);
+    //   res.send(result);
+    // });
+
+
+    app.get('/item/:name', async (req, res) => {
+      const { name } = req.params;
+      const formattedName = name.replace(/-/g, ' ').toLowerCase();
+      const query = { name: new RegExp(`^${formattedName}$`, 'i') }; // Case-insensitive regex match
       const result = await itemCollection.findOne(query);
       res.send(result);
     });
-
 
     app.post('/item', async (req, res) => {
       const item = req.body;
@@ -296,8 +317,8 @@ async function run() {
     app.patch('/item/:id', async (req, res) => {
       const itemId = req.params.id;
 
-      console.log("Updating Item ID:", itemId); // Log the ID
-      console.log("Request Body:", req.body); // Log the incoming request body
+      // console.log("Updating Item ID:", itemId); // Log the ID
+      // console.log("Request Body:", req.body); // Log the incoming request body
 
       // Prepare the update data
       const updateData = { $set: req.body };
@@ -307,7 +328,7 @@ async function run() {
           { _id: new ObjectId(itemId) },
           updateData
         );
-        console.log("Update Result:", result); // Log the result
+        // console.log("Update Result:", result); // Log the result
 
         if (result.modifiedCount === 0) {
           return res.status(404).json({ message: 'Item not found or no changes made' });
@@ -349,7 +370,7 @@ async function run() {
         }).limit(4).toArray();
 
         // Log the relatedProducts to inspect the format
-        console.log("Related products:", relatedProducts);
+        // console.log("Related products:", relatedProducts);
 
         // Confirm that relatedProducts is an array before sending
         if (!Array.isArray(relatedProducts)) {
